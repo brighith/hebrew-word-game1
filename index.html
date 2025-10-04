@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="he">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>אתגר מילים — سحب للموبايل</title>
+<style>
+  :root{--b1:#2193b0;--b2:#6dd5ed;--o1:#f7971e;--o2:#ffd200}
+  *{box-sizing:border-box}
+  body{font-family:Arial,sans-serif;direction:rtl;background:#eef6ff;margin:0;min-height:100vh;display:flex;flex-direction:column;align-items:center;-webkit-user-select:none;user-select:none}
+  h1{color:#2a4d69;margin:16px 10px;text-align:center;line-height:1.2}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:14px;width:92%;max-width:1100px;padding:10px}
+  .card{
+    background:linear-gradient(135deg,var(--b2),var(--b1));
+    color:#fff;width:110px;min-height:80px;border-radius:12px;
+    box-shadow:0 4px 10px rgba(0,0,0,.18);
+    display:flex;align-items:center;justify-content:center;font-size:34px;
+    touch-action:none;cursor:grab
+  }
+
+  .suffixes{margin:18px 0 10px;display:flex;gap:22px;justify-content:center;flex-wrap:wrap;width:92%;max-width:1100px}
+  .suffix{width:220px;text-align:center}
+  .fix{background:linear-gradient(135deg,var(--o1),var(--o2));color:#333;font-size:46px;padding:12px 0;border-radius:14px}
+  .zone{margin-top:8px;border:3px dashed var(--o1);border-radius:12px;padding:10px;color:#555;min-height:46px;font-weight:700}
+  .zone.active{background:#ffeeba;border-color:#f5c842}
+  .result{margin-top:10px;background:#fff;border-radius:12px;padding:10px;min-height:64px;box-shadow:0 2px 8px rgba(0,0,0,.08);cursor:pointer}
+  .w{font-size:26px;color:#2a4d69;font-weight:700}
+  .m{margin-top:6px;font-size:18px;color:#1c4e80}
+
+  .btn{position:fixed;bottom:16px;right:16px;padding:12px 24px;font-size:18px;background:#4a90e2;color:#fff;border:none;border-radius:12px;cursor:pointer}
+
+  .ghost{
+    position:fixed;left:0;top:0;transform:translate(-9999px,-9999px);
+    width:110px;min-height:80px;border-radius:12px;
+    background:linear-gradient(135deg,var(--b2),var(--b1));color:#fff;
+    display:flex;align-items:center;justify-content:center;font-size:34px;
+    pointer-events:none;z-index:9999;box-shadow:0 10px 18px rgba(0,0,0,.28)
+  }
+</style>
+</head>
+<body>
+
+<h1>אתגר מילים اسحب الجزء الأول إلى السّيומה</h1>
+
+<div class="grid" id="grid"></div>
+<div class="suffixes" id="suffixes"></div>
+<button class="btn" id="reset">נקה הכל</button>
+
+<div id="ghost" class="ghost" aria-hidden="true"></div>
+
+<script>
+  // القاموس
+  const dict={
+    "קנה":"اشترى","בנה":"بنى","ענה":"أجاب","שנה":"غيّر",
+    "חנה":"ركن","מנה":"عَدّ","ברק":"برق","מרק":"شوربة",
+    "זרק":"رمى","סרק":"مشّط","שרק":"صفّر",
+    "סל":"سلّة","קל":"سهل","דל":"فقير","גל":"موجة","על":"فوق"
+  };
+
+  // السّيومات المطلوبة
+  const suffixList=["נה","רק","ל"]; // بدون על
+
+  // الكلمات الأصلية
+  const words=Object.keys(dict);
+
+  // استخراج الجزء الأول لكل كلمة
+  function firstPart(w){
+    if(w.endsWith("נה")||w.endsWith("רק")) return w.slice(0,-2);
+    if(w.endsWith("ל")) return w.slice(0,-1);
+    return w;
+  }
+
+  // بطاقات من كل كلمة لعرض كل الأجزاء حتى لو تكررت
+  const cardsData=words.map(w=>firstPart(w));
+
+  const grid=document.getElementById("grid");
+  const suffixes=document.getElementById("suffixes");
+  const ghost=document.getElementById("ghost");
+
+  // بناء البطاقات
+  function buildCards(){
+    grid.innerHTML="";
+    cardsData.forEach(p=>{
+      const c=document.createElement("div");
+      c.className="card";
+      c.textContent=p;
+      c.dataset.first=p;
+      c.addEventListener("pointerdown",startDrag);
+      grid.appendChild(c);
+    });
+  }
+
+  // بناء مناطق السّيومات والنتائج
+  function buildSuffixes(){
+    suffixes.innerHTML="";
+    suffixList.forEach(s=>{
+      const wrap=document.createElement("div");
+      wrap.className="suffix";
+      wrap.innerHTML=`
+        <div class="fix">${s}</div>
+        <div class="zone" data-suffix="${s}">اسحب هنا</div>
+        <div class="result" id="res-${s}">
+          <div class="w"></div>
+          <div class="m"></div>
+        </div>
+      `;
+      suffixes.appendChild(wrap);
+
+      // إعادة النطق بالضغط على النتيجة
+      wrap.querySelector(".result").addEventListener("click",()=>{
+        const he=wrap.querySelector(".w").textContent.trim();
+        const ar=wrap.querySelector(".m").textContent.trim();
+        if(he&&ar) speakPair(he,ar);
+      });
+    });
+  }
+
+  // سحب بالإصبع عبر Pointer Events
+  let dragging=false;
+  let currentFirst="";
+
+  function startDrag(e){
+    e.preventDefault();
+    const card=e.currentTarget;
+    currentFirst=card.dataset.first;
+    dragging=true;
+
+    if(card.setPointerCapture) card.setPointerCapture(e.pointerId);
+
+    ghost.textContent=currentFirst;
+    moveGhost(e.clientX,e.clientY);
+
+    card.addEventListener("pointermove",onMove);
+    card.addEventListener("pointerup",endDrag,{once:true});
+    card.addEventListener("pointercancel",endDrag,{once:true});
+
+    primeTTS(); // تهيئة الصوت لأول لمس على iOS
+  }
+
+  function onMove(e){
+    if(!dragging) return;
+    moveGhost(e.clientX,e.clientY);
+    highlightZone(e.clientX,e.clientY);
+  }
+
+  function endDrag(e){
+    const dz=zoneAt(e.clientX,e.clientY);
+    clearHighlight();
+    if(dz){
+      place(currentFirst,dz.dataset.suffix);
+    }
+    dragging=false;
+    ghost.style.transform="translate(-9999px,-9999px)";
+    e.currentTarget.removeEventListener("pointermove",onMove);
+  }
+
+  function moveGhost(x,y){
+    const offX=55,offY=40;
+    ghost.style.transform=`translate(${x-offX}px,${y-offY}px)`;
+  }
+
+  function zoneAt(x,y){
+    const els=document.elementsFromPoint(x,y)||[];
+    return els.find(el=>el.classList&&el.classList.contains("zone"))||null;
+  }
+
+  function highlightZone(x,y){
+    clearHighlight();
+    const z=zoneAt(x,y);
+    if(z) z.classList.add("active");
+  }
+
+  function clearHighlight(){
+    document.querySelectorAll(".zone.active").forEach(z=>z.classList.remove("active"));
+  }
+
+  // وضع الكلمة والنطق
+  function place(first,suffix){
+    const full=first+suffix;
+    if(!(full in dict)) return;
+
+    const box=document.getElementById("res-"+suffix);
+    box.querySelector(".w").textContent=full;
+    box.querySelector(".m").textContent=dict[full];
+
+    speakPair(full,dict[full]);
+  }
+
+  // النطق
+  const hasTTS=typeof window!=="undefined" && "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
+  let primed=false,heVoice=null,arVoice=null;
+  const isiOS=/iPad|iPhone|iPod/.test(navigator.userAgent||"");
+
+  function loadVoices(){
+    if(!hasTTS) return Promise.resolve();
+    return new Promise(res=>{
+      const poll=()=>{
+        const vs=window.speechSynthesis.getVoices();
+        if(vs && vs.length){
+          heVoice=vs.find(v=>/Carmit|he|Hebrew/i.test((v.name||"")+(v.lang||"")))||null;
+          arVoice=vs.find(v=>/Maged|Majed|Tarik|ar/i.test((v.name||"")+(v.lang||"")))||null;
+          res();
+        }else setTimeout(poll,120);
+      }; poll();
+    });
+  }
+
+  function primeTTS(){
+    if(!hasTTS||primed) return;
+    primed=true;
+    try{ window.speechSynthesis.speak(new SpeechSynthesisUtterance(" ")); }catch(_){}
+    loadVoices();
+  }
+
+  if(hasTTS && "onvoiceschanged" in window.speechSynthesis){
+    window.speechSynthesis.onvoiceschanged=()=>{ if(primed) loadVoices(); };
+  }
+
+  function speakOnce(text,voice,fallback){
+    if(!hasTTS) return Promise.resolve();
+    return new Promise(done=>{
+      const u=new SpeechSynthesisUtterance(text);
+      if(voice) u.voice=voice; else u.lang=fallback;
+      u.rate=isiOS?0.95:1.0;
+      u.onend=()=>done();
+      try{ window.speechSynthesis.speak(u); }catch(_){ done(); }
+    });
+  }
+
+  async function speakPair(he,ar){
+    if(!hasTTS) return;
+    try{ window.speechSynthesis.cancel(); }catch(_){}
+    await speakOnce(he,heVoice,"he-IL");
+    await new Promise(r=>setTimeout(r,isiOS?60:20));
+    await speakOnce(ar,arVoice,"ar-SA");
+  }
+
+  // إعادة
+  document.getElementById("reset").addEventListener("click",()=>{
+    document.querySelectorAll(".w").forEach(e=>e.textContent="");
+    document.querySelectorAll(".m").forEach(e=>e.textContent="");
+    buildAll();
+  });
+
+  function buildAll(){ buildCards(); buildSuffixes(); }
+
+  // تشغيل
+  buildAll();
+</script>
+</body>
+</html>
